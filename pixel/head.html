@@ -1,64 +1,179 @@
 <script>
-  document.addEventListener("DOMContentLoaded", function() {
-      function initializeScript() {
-          setTimeout(function() { // Aguarda 2 segundos antes de executar o script
-              console.log("Initialized GTM script");
-  
-              function updateBadgeText() {
-                  var skuValueElement = document.querySelector(".vtex-store-components-3-x-skuSelectorSelectorImageValue");
-                  var badgeTextElement = document.querySelector(".vtex-product-specification-badges-0-x-badgeText--mensal-exceto-para-pagamento-a-vista");
-  
-                  if (skuValueElement && badgeTextElement) {
-                      var skuValueText = skuValueElement.textContent.trim();
-  
-                      if (skuValueText === "Sou cliente  e quero pagar à vista") {
-                          badgeTextElement.textContent = "à vista";
-                      } else if (skuValueText === "Sou cliente  e quero pagar em 12x" || skuValueText === "Quero ser cliente SoftExpert (leia abaixo sobre: Serviços Adicionais)") {
-                          badgeTextElement.textContent = "mensal";
-                      }
-                  }
-              }
-  
-              function checkElementsAndObserve() {
-                  var flexRowWrapper = document.querySelector(".vtex-flex-layout-0-x-flexRow");
-                  var skuSelectorContainer = document.querySelector(".vtex-store-components-3-x-skuSelectorSelectContainer");
-  
-                  if (flexRowWrapper && skuSelectorContainer) {
-                      updateBadgeText();
-  
-                      var selectElement = skuSelectorContainer.querySelector("select");
-                      if (selectElement) {
-                          selectElement.addEventListener("change", function() {
-                              setTimeout(updateBadgeText, 100);
-                          });
-  
-                          var observer = new MutationObserver(updateBadgeText);
-                          observer.observe(document.querySelector(".vtex-store-components-3-x-skuSelectorSelectorImageValue"), { childList: true, subtree: true });
-                      }
-                  }
-              }
-  
-              checkElementsAndObserve();
-          }, 6000); // 2000ms = 2 segundos
+// IDs de produtos que causam conflito
+const conflictProductIds = ["700000", "700001", "700002", "700003"];
+let lastItemCount = 0; // Contador de itens no carrinho para detectar mudanças
+
+// Função para verificar o orderForm e identificar conflitos
+function checkOrderFormConflict() {
+  fetch('/api/checkout/pub/orderForm')
+    .then(response => response.json())
+    .then(orderForm => {
+      const items = orderForm.items || [];
+      const newItem = items[items.length - 1]; // Captura o último item adicionado
+      let hasConflictProduct = false;
+      let hasOtherProduct = false;
+
+      // Verifica os produtos no carrinho
+      items.forEach(item => {
+        if (conflictProductIds.includes(item.id)) {
+          hasConflictProduct = true;
+        } else {
+          hasOtherProduct = true;
+        }
+      });
+
+      // Exibe popup e registra no console o item adicionado
+      if (hasConflictProduct && hasOtherProduct) {
+        console.log('Produto adicionado ao carrinho:', newItem);
+        showConflictPopup(orderForm);
       }
-  
-      // Inicializa o script ao carregar a página
-      initializeScript();
-  
-      // Adiciona um listener para mudanças de conteúdo em páginas SPA
-      window.addEventListener("popstate", function() {
-          initializeScript(); // Reexecuta o script sempre que o estado da URL mudar
-      });
-      
-      // Também pode ser necessário observar mudanças no DOM, caso a SPA modifique conteúdo sem mudar a URL
-      const observer = new MutationObserver(function() {
-          initializeScript();
-      });
-  
-      observer.observe(document.body, {
-          childList: true,
-          subtree: true
-      });
-  });
+    })
+    .catch(error => console.error('Erro ao carregar o orderForm:', error));
+}
+
+// Função para exibir a popup de conflito
+function showConflictPopup(orderForm) {
+  const popupOverlay = document.createElement('div');
+  popupOverlay.style.position = 'fixed';
+  popupOverlay.style.top = '0';
+  popupOverlay.style.left = '0';
+  popupOverlay.style.width = '100%';
+  popupOverlay.style.height = '100%';
+  popupOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+  popupOverlay.style.display = 'flex';
+  popupOverlay.style.justifyContent = 'center';
+  popupOverlay.style.alignItems = 'center';
+  popupOverlay.style.zIndex = '9999';
+
+  const popup = document.createElement('div');
+  popup.style.backgroundColor = '#fff';
+  popup.style.padding = '20px';
+  popup.style.borderRadius = '8px';
+  popup.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+  popup.style.textAlign = 'center';
+  popup.style.width = '500px'; // Ajuste de largura
+
+  const message1 = document.createElement('p');
+  message1.className = 'popup-message-warning';
+  message1.innerText = `Ao adicionar este produto, o Gift Card será removido do carrinho.`;
+  message1.style.fontWeight = '700';
+  popup.appendChild(message1);
+
+  const message2 = document.createElement('p');
+  message2.className = 'popup-message-note';
+  message2.innerText = `* A compra do Gift Card precisa ser realizada separadamente de outros produtos.`;
+  message2.style.fontWeight = '200';
+  message2.style.fontSize = '14px';
+  popup.appendChild(message2);
+
+  const message3 = document.createElement('p');
+  message3.className = 'popup-message-confirmation';
+  message3.innerText = `Deseja continuar com a compra?`;
+  popup.appendChild(message3);
+
+  const yesButton = document.createElement('button');
+  yesButton.innerText = 'Sim';
+  yesButton.style.marginRight = '10px';
+  yesButton.style.padding = '10px 40px';
+  yesButton.style.border = 'none';
+  yesButton.style.borderRadius = '4px';
+  yesButton.style.backgroundColor = '#192f63';
+  yesButton.style.color = '#fff';
+  yesButton.style.cursor = 'pointer';
+  yesButton.onclick = () => {
+    document.body.removeChild(popupOverlay);
+    removeConflictProducts(orderForm);
+    window.location.reload(); // Recarrega a página
+  };
+  popup.appendChild(yesButton);
+
+  const noButton = document.createElement('button');
+  noButton.innerText = 'Não';
+  noButton.style.padding = '10px 40px';
+  noButton.style.border = 'none';
+  noButton.style.borderRadius = '4px';
+  noButton.style.backgroundColor = '#192f63';
+  noButton.style.color = '#fff';
+  noButton.style.cursor = 'pointer';
+  noButton.onclick = () => {
+    document.body.removeChild(popupOverlay);
+
+    // Identificar e remover o último produto adicionado
+    const lastItemIndex = orderForm.items.length - 1;
+    const lastProduct = orderForm.items[lastItemIndex];
+    if (lastProduct) {
+      const itemsToUpdate = [
+        {
+          index: lastItemIndex,
+          quantity: 0, // Remove o último produto
+        },
+      ];
+
+      fetch(`/api/checkout/pub/orderForm/${orderForm.orderFormId}/items/update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ orderItems: itemsToUpdate }),
+      })
+        .then(response => response.json())
+        .then(updatedOrderForm => {
+          console.log('Último produto removido com sucesso:', updatedOrderForm);
+          window.location.reload(); // Recarrega a página
+        })
+        .catch(error => console.error('Erro ao remover o último produto:', error));
+    }
+  };
+  popup.appendChild(noButton);
+
+  popupOverlay.appendChild(popup);
+  document.body.appendChild(popupOverlay);
+}
+
+// Função para remover produtos conflitantes do orderForm
+function removeConflictProducts(orderForm) {
+  const orderFormId = orderForm.orderFormId;
+  const itemsToUpdate = orderForm.items
+    .map((item, index) => ({
+      index: index,
+      quantity: conflictProductIds.includes(item.id) ? 0 : item.quantity,
+    }))
+    .filter(item => item.quantity === 0);
+
+  fetch(`/api/checkout/pub/orderForm/${orderFormId}/items/update`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ orderItems: itemsToUpdate }),
+  })
+    .then(response => response.json())
+    .then(updatedOrderForm => {
+      console.log('Produtos removidos com sucesso:', updatedOrderForm);
+    })
+    .catch(error => console.error('Erro ao remover produtos:', error));
+}
+
+// Monitoramento contínuo para detectar mudanças no carrinho
+function monitorOrderFormChanges() {
+  setInterval(() => {
+    fetch('/api/checkout/pub/orderForm')
+      .then(response => response.json())
+      .then(orderForm => {
+        const itemCount = (orderForm.items || []).length;
+        if (itemCount !== lastItemCount) {
+          lastItemCount = itemCount;
+          checkOrderFormConflict();
+        }
+      })
+      .catch(error => console.error('Erro ao monitorar o orderForm:', error));
+  }, 2000);
+}
+
+// Executa no carregamento da página
+document.addEventListener('DOMContentLoaded', () => {
+  monitorOrderFormChanges();
+  checkOrderFormConflict(); // Executa a verificação inicial
+});
   </script>
   
