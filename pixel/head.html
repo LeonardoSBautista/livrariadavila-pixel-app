@@ -1,3 +1,22 @@
+<style>
+  .product-redirect {
+          background-color: white;
+          width: 90%;
+          margin-top: 19px;
+          padding: 10px;
+          border-radius: 10px;
+          box-shadow: 5px 3px 5px darkgray;
+        }
+        .product-redirect a {
+          color: #007bff;
+          text-decoration: none;
+        }
+        .product-redirect a:hover {
+          text-decoration: underline;
+        }
+</style>
+
+
 <script>
 // IDs de produtos que causam conflito
 const conflictProductIds = ["700000", "700001", "700002", "700003", "700004", "700005", "700006", "700007", "700008"];
@@ -176,4 +195,56 @@ document.addEventListener('DOMContentLoaded', () => {
   checkOrderFormConflict(); // Executa a verificação inicial
 });
   </script>
+  
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      console.log('Iniciando monitoramento do DOM para adicionar o evento de clique...');
+  
+      let observer;
+      const checkInterval = 2000; // Intervalo de 2 segundos para verificar o elemento
+  
+      const monitorElement = () => {
+        const skuTag = document.querySelector('meta[property="product:sku"]');
+        
+        if (skuTag && skuTag.getAttribute('content') === '920731') {
+          const availabilityTag = document.querySelector('meta[property="product:availability"]');
+          
+          if (availabilityTag && availabilityTag.getAttribute('content') === 'oos') {
+            const intervalId = setInterval(() => {
+              const targetElement = document.querySelector(
+                '.vtex-flex-layout-0-x-flexCol.vtex-flex-layout-0-x-flexCol--message-availability'
+              );
+              
+              if (targetElement) {
+                clearInterval(intervalId); // Para o intervalo após encontrar o elemento
+                targetElement.innerHTML = `
+                  <div class="product-redirect">
+                    <p>As unidades autografadas deste produto se esgotaram, mas você pode obter o livro sem o autógrafo 
+                      <a href="https://www.livrariadavila.com.br/920617-na-nossa-pele-continuando-a-conversa/p?utm_source=site&utm_medium=lazaro+ramos&utm_campaign=Na+Nossa+Pele+&utm_id=920617&utm_content=livros">aqui</a>.
+                    </p>
+                  </div>
+                `;
+                console.log('Elemento encontrado e conteúdo atualizado!');
+              }
+            }, checkInterval); // Verifica a cada 2 segundos
+          }
+        }
+      };
+  
+      // Usando MutationObserver para monitorar alterações no DOM
+      observer = new MutationObserver(() => {
+        console.log('Alteração no DOM detectada. Verificando novamente...');
+        monitorElement(); // Verifica se deve atualizar o conteúdo após a alteração no DOM
+      });
+  
+      // Inicia o monitoramento de alterações no DOM
+      observer.observe(document.body, { childList: true, subtree: true });
+  
+      // Realiza a verificação inicial ao carregar a página
+      monitorElement();
+    });
+  </script>
+  
+  
   
