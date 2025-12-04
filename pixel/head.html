@@ -244,6 +244,91 @@ document.addEventListener('DOMContentLoaded', () => {
       // Realiza a verificação inicial ao carregar a página
       monitorElement();
     });
+
+
+
+
+
+
+    // Função para verificar e redirecionar baseado na URL
+function checkAndRedirect() {
+  const currentPath = window.location.pathname.toLowerCase();
+  
+  // Padrões de URL para monitorar
+  const patterns = [
+    '/giftcard/consulta',
+    '/valepresente/consulta'
+  ];
+  
+  // Verificar se a URL atual corresponde a algum dos padrões
+  const shouldRedirect = patterns.some(pattern => 
+    currentPath.includes(pattern.toLowerCase())
+  );
+  
+  // Se corresponder, redirecionar para a URL desejada
+  if (shouldRedirect) {
+    window.location.href = 'https://www.livrariadavila.com.br/vale-presente/consulta';
+  }
+}
+
+// Monitorar mudanças de URL em SPAs (para diferentes frameworks)
+function setupUrlMonitoring() {
+  // 1. Usando MutationObserver para detectar mudanças no DOM
+  const observer = new MutationObserver(() => {
+    checkAndRedirect();
+  });
+  
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+  
+  // 2. Sobrescrever pushState e replaceState do History API
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+  
+  history.pushState = function(state, title, url) {
+    originalPushState.apply(this, arguments);
+    checkAndRedirect();
+  };
+  
+  history.replaceState = function(state, title, url) {
+    originalReplaceState.apply(this, arguments);
+    checkAndRedirect();
+  };
+  
+  // 3. Adicionar listener para eventos popstate (navegação com botões voltar/avançar)
+  window.addEventListener('popstate', checkAndRedirect);
+  
+  // 4. Verificar URL inicial
+  checkAndRedirect();
+}
+
+// Inicializar o monitoramento quando o DOM estiver carregado
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupUrlMonitoring);
+} else {
+  setupUrlMonitoring();
+}
+
+// Para frameworks específicos como React, Angular, Vue
+// Você também pode usar hooks específicos se necessário
+
+// Hook para React (se estiver usando React)
+if (typeof window !== 'undefined' && window.React) {
+  // Usar useEffect em componentes React para monitorar
+  console.log('React detectado - considere usar useEffect para melhor integração');
+}
+
+// Hook para Vue Router (se estiver usando Vue)
+if (typeof window !== 'undefined' && window.Vue) {
+  console.log('Vue detectado - considere usar beforeEach hook do Vue Router');
+}
+
+// Hook para Angular Router (se estiver usando Angular)
+if (typeof window !== 'undefined' && window.ng) {
+  console.log('Angular detectado - considere usar guards de rota');
+}
   </script>
   
   
