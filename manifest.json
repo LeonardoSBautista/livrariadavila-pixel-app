@@ -1,7 +1,7 @@
 {
   "name": "scriptintegration",
   "vendor": "livrariadavila",
-  "version": "0.0.24",
+  "version": "0.0.25",
   "title": "scriptintegration",
   "description": "This is an pixel app that allows the integration of scripts in storefront.",
   "billingOptions": {
