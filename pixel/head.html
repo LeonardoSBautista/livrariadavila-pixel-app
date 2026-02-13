@@ -14,7 +14,137 @@
         .product-redirect a:hover {
           text-decoration: underline;
         }
+
+
+
+
+        li.vtex-mega-menu-2-x-menuItem.bg-black-05 {
+    background: #192F63!important;
+  }
+  
+  span[data-specification-name=Sinopse], span[data-specification-name=LivroDigital] {
+    display: none!important;
+}
+  
+  .swiper-container-thumbs {
+    width: 70px;
+    margin-top: 5px;
+}
+
+span.swiper-thumbnails-caret-next.vtex-store-components-3-x-productImagesThumbCaret.absolute.z-2.pointer.c-action-primary.flex.pv2.bottom-0.pt7.left-0.justify-center.w-100.vtex-store-components-3-x-gradientBaseBottom {
+    display: none;
+}
+
+span.swiper-thumbnails-caret-prev.top-0.left-0.vtex-store-components-3-x-productImagesThumbCaret.absolute.z-2.pointer.c-action-primary.flex.pv2.pb7.justify-center.w-100.vtex-store-components-3-x-gradientBaseTop {
+    display: none;
+}
+  
+  .vtex-stack-layout-0-x-stackItem--product--first .vtex-product-highlights-2-x-productHighlightWrapper--shelf-highlight-promotion {
+    z-index: 9999999999;
+    position: relative;
+  }
+  
+  @media screen and (max-width: 768px) {
+  @supports selector(::backdrop) {
+    /* Estilos específicos para Safari em mobile */
+    .vtex-slider-layout-0-x-sliderTrack.vtex-slider-layout-0-x-sliderTrack--carousel.vtex-slider-layout-0-x-sliderTrack--banners-secundarios.flex.relative.pa0.ma0 {
+      width: 345% !important;
+    }
+  }
+}
+  
+  span.vtex-product-specifications-1-x-specificationValue.vtex-product-specifications-1-x-specificationValue--last {
+    display: none;
+}
+
+span.vtex-product-specifications-1-x-specificationValue.vtex-product-specifications-1-x-specificationValue--first {
+    display: block!important;
+}
+  
+  @media screen and (min-width:768px) {
+    .vtex-flex-layout-0-x-flexRow.vtex-flex-layout-0-x-flexRow--productMain .vtex-product-specification-badges-0-x-badgeContainer.vtex-product-specification-badges-0-x-badgeContainer--pre-venda span {
+    margin-left: -38px;
+}
+  }
 </style>
+
+
+<!-- Whatsapp Flutuante -->
+
+<div class="whatsapp-float">
+    <div class="content-2">
+        <p>De segunda a sábado, </p>
+        <p>Das 09h às 17h,</p>
+        <p>Exceto Feriados.</p>
+    </div>
+    <a target="_blank" href="https://api.whatsapp.com/send?phone=5511995390321&amp;text=Ol%C3%A1!%20Acessei%20o%20site%20da%20Livraria%20da%20Vila%20e%20quero%20mais%20informa%C3%A7%C3%B5es.">
+        <div class="content-1">
+            <span>
+                <!-- SVG INLINE START -->
+                <img src="https://i.postimg.cc/1ztryqty/whatsapp-float.png">
+                <!-- SVG INLINE END -->
+            </span>
+        </div>
+    </a>
+</div>
+
+<style>
+    .whatsapp-float {
+        display: grid !important;
+        grid-auto-flow: column;
+        position: fixed;
+        right: 2%;
+        z-index: 9998;
+        bottom: 3%;
+    }
+
+    .whatsapp-float .content-1 {
+        z-index: 10001;
+        position: relative;
+        left: 0px;
+    }
+
+    .whatsapp-float .content-1 span {
+        position: absolute;
+        left: -40px;
+        top: 9px;
+    }
+
+    .whatsapp-float .content-2 {
+        background: #499238;
+        display: flex;
+        gap: 0px;
+        align-items: center;
+        padding: 0px 20px 0 28px;
+        border-radius: 40px;
+        height: 48px;
+        flex-direction: column;
+        line-height: 0px;
+    }
+
+    .content-2 p {
+        width: 120px;
+        font-size: 11px;
+        color: white;
+        text-align: right;
+        display: none;
+    }
+
+    .whatsapp-float:hover > .content-2 p {
+        display: block;
+        margin-right: 30px;
+        justify-content: end;
+        margin-bottom: 2px;
+    }
+</style>
+
+<script>
+  window.addEventListener('load', function() {
+    setTimeout(function() {
+        document.querySelector('.whatsapp-float').parentElement.removeAttribute('style');
+    }, 1000);
+});
+</script>
 
 
 <script>
