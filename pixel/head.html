@@ -487,3 +487,303 @@
   }
 
 </script>
+
+
+
+
+
+
+<script>
+  (function () {
+  'use strict';
+  if (window.LDVPromocionalSeparadoMonitor) return;
+
+  const CONFIG = {
+    sku: '976084',
+    nome: 'Ingresso Evento + Livro - Corte de Harmonias Partidas',
+    intervalo: 1200
+  };
+  const VERSAO = '3.0.0';
+  let anterior = null;
+  let popup = null;
+  let consulta = null;
+  let atualizando = false;
+  let liberando = null;
+
+  function promocional(item) { return String(item.id) === CONFIG.sku; }
+  function ativos(carrinho) { return carrinho.items.filter(item => Number(item.quantity) > 0); }
+  function misturado(carrinho) {
+    return ativos(carrinho).some(promocional) && ativos(carrinho).some(item => !promocional(item));
+  }
+  function chave(item) {
+    return item.uniqueId ? String(item.uniqueId) : String(item.id) + ':' + String(item.seller || '1');
+  }
+  function assinatura(carrinho) {
+    return JSON.stringify([carrinho.orderFormId, ativos(carrinho).map(item =>
+      [chave(item), String(item.id), String(item.seller || '1'), Number(item.quantity)]
+    )]);
+  }
+  function copia(carrinho) { return JSON.parse(JSON.stringify(carrinho)); }
+  function quantidades(carrinho) {
+    return new Map(ativos(carrinho).map(item => [chave(item), Number(item.quantity)]));
+  }
+
+  async function api(url, opcoes) {
+    const resposta = await fetch(url, Object.assign({ credentials: 'same-origin', cache: 'no-store' }, opcoes));
+    if (!resposta.ok) throw new Error('Falha ao consultar ou atualizar o carrinho: HTTP ' + resposta.status);
+    const carrinho = await resposta.json();
+    if (!carrinho || carrinho.error || !carrinho.orderFormId || !Array.isArray(carrinho.items)) {
+      throw new Error('Resposta inválida do carrinho.');
+    }
+    return carrinho;
+  }
+  function lerCarrinho() { return api('/api/checkout/pub/orderForm'); }
+
+  function contexto(carrinho) {
+    const base = anterior && anterior.orderFormId === carrinho.orderFormId ? copia(anterior) : null;
+    const antes = base ? quantidades(base) : new Map();
+    const adicoes = base ? ativos(carrinho).filter(item => Number(item.quantity) > (antes.get(chave(item)) || 0)) : [];
+    const entrouPromo = adicoes.some(promocional);
+    const entrouOutro = adicoes.some(item => !promocional(item));
+    return {
+      carrinho: copia(carrinho), base: base,
+      podeCancelar: !!base && adicoes.length > 0,
+      direcao: entrouPromo !== entrouOutro ? (entrouPromo ? 'promo' : 'outros') : null
+    };
+  }
+
+  function fecharPopup() {
+    if (!popup) return;
+    const fechado = popup;
+    popup = null;
+    document.removeEventListener('keydown', fechado.teclado, true);
+    fechado.overlay.remove();
+    if (fechado.focoAnterior && fechado.focoAnterior.isConnected) fechado.focoAnterior.focus();
+  }
+
+  function abrirPopup(carrinho, aviso) {
+    fecharPopup();
+    const plano = contexto(carrinho);
+    const overlay = document.createElement('div');
+    overlay.id = 'ldv-promocional-overlay';
+    const caixa = document.createElement('div');
+    caixa.id = 'ldv-promocional-modal';
+    caixa.setAttribute('role', 'dialog');
+    caixa.setAttribute('aria-modal', 'true');
+    caixa.setAttribute('aria-labelledby', 'ldv-promocional-titulo');
+    caixa.setAttribute('aria-describedby', 'ldv-promocional-descricao');
+    const titulo = document.createElement('h2');
+    titulo.id = 'ldv-promocional-titulo';
+    titulo.textContent = plano.direcao ? 'Este produto deve ser comprado separadamente' : 'Separe os produtos do carrinho';
+    const descricao = document.createElement('div');
+    descricao.id = 'ldv-promocional-descricao';
+    const mensagem = document.createElement('p');
+    const nome = document.createElement('strong');
+    nome.textContent = CONFIG.nome;
+    if (plano.direcao === 'outros') {
+      mensagem.append('Ao continuar com a adição deste produto, o item promocional ', nome, ' será removido do carrinho.');
+    } else if (plano.direcao === 'promo') {
+      mensagem.append('Ao continuar com a adição de ', nome, ', os outros produtos serão removidos do carrinho.');
+    } else {
+      mensagem.append('Seu carrinho contém ', nome, ' e outros produtos. Escolha quais itens deseja manter.');
+    }
+    const regra = document.createElement('p');
+    regra.className = 'ldv-promocional-regra';
+    regra.textContent = 'A compra deste item promocional precisa ser realizada separadamente de outros produtos.';
+    const pergunta = document.createElement('p');
+    pergunta.textContent = plano.direcao ? 'Deseja continuar com a adição do novo produto?' : 'Como deseja continuar?';
+    descricao.append(mensagem, regra, pergunta);
+    const erro = document.createElement('p');
+    erro.className = 'ldv-promocional-erro';
+    erro.setAttribute('role', 'alert');
+    erro.textContent = aviso || '';
+    const acoes = document.createElement('div');
+    acoes.className = 'ldv-promocional-acoes';
+    function botao(texto, escolha, destaque) {
+      const elemento = document.createElement('button');
+      elemento.type = 'button';
+      elemento.textContent = texto;
+      elemento.dataset.escolha = escolha;
+      if (destaque) elemento.className = 'ldv-promocional-confirmar';
+      elemento.addEventListener('click', () => aplicarEscolha(escolha));
+      acoes.appendChild(elemento);
+      return elemento;
+    }
+    let cancelar;
+    if (plano.podeCancelar) {
+      cancelar = botao(plano.direcao ? 'Cancelar adição' : 'Desfazer novas adições', 'cancelar', false);
+    }
+    let primeiro;
+    if (plano.direcao) {
+      primeiro = botao('Sim, continuar', plano.direcao, true);
+    } else {
+      primeiro = botao('Manter apenas o promocional', 'promo', true);
+      botao('Manter os outros produtos', 'outros', false);
+    }
+    caixa.append(titulo, descricao, erro, acoes);
+    overlay.appendChild(caixa);
+    const teclado = evento => {
+      if (evento.key === 'Escape') {
+        evento.preventDefault();
+        evento.stopImmediatePropagation();
+        if (!atualizando && plano.podeCancelar) aplicarEscolha('cancelar');
+      }
+      if (evento.key !== 'Tab') return;
+      const botoes = Array.from(acoes.querySelectorAll('button:not(:disabled)'));
+      if (!botoes.length) { evento.preventDefault(); return; }
+      const primeiroBotao = botoes[0];
+      const ultimoBotao = botoes[botoes.length - 1];
+      if (evento.shiftKey && (document.activeElement === primeiroBotao || !caixa.contains(document.activeElement))) {
+        evento.preventDefault(); ultimoBotao.focus();
+      } else if (!evento.shiftKey && (document.activeElement === ultimoBotao || !caixa.contains(document.activeElement))) {
+        evento.preventDefault(); primeiroBotao.focus();
+      }
+    };
+    popup = { overlay, caixa, erro, plano, teclado, focoAnterior: document.activeElement };
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', teclado, true);
+    (cancelar || primeiro).focus();
+  }
+
+  async function aplicarEscolha(escolha) {
+    if (!popup || atualizando) return;
+    const aberto = popup;
+    atualizando = true;
+    aberto.erro.textContent = '';
+    aberto.caixa.setAttribute('aria-busy', 'true');
+    aberto.caixa.querySelectorAll('button').forEach(botao => { botao.disabled = true; });
+    try {
+      // Índices e quantidades são obtidos novamente, no momento da decisão.
+      const atual = await lerCarrinho();
+      if (!misturado(atual)) {
+        anterior = copia(atual);
+        window.location.reload();
+        return;
+      }
+      if (assinatura(atual) !== assinatura(aberto.plano.carrinho)) {
+        abrirPopup(atual, 'O carrinho mudou durante a confirmação. Confira a mensagem e escolha novamente.');
+        return;
+      }
+      const anteriores = aberto.plano.base ? quantidades(aberto.plano.base) : new Map();
+      const orderItems = [];
+      atual.items.forEach((item, index) => {
+        if (escolha === 'cancelar') {
+          const antes = anteriores.get(chave(item)) || 0;
+          if (Number(item.quantity) > antes) orderItems.push({ index, quantity: antes });
+        } else if (promocional(item) !== (escolha === 'promo')) {
+          orderItems.push({ index, quantity: 0 });
+        }
+      });
+      if (escolha === 'cancelar' && !aberto.plano.podeCancelar) throw new Error('Não foi possível identificar a adição anterior.');
+      if (orderItems.length) {
+        const atualizado = await api('/api/checkout/pub/orderForm/' + encodeURIComponent(atual.orderFormId) + '/items/update', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderItems })
+        });
+        if (misturado(atualizado)) throw new Error('O carrinho ainda contém os dois grupos.');
+      }
+      // Confere a atualização antes de sincronizar a interface com o recarregamento.
+      const final = await lerCarrinho();
+      if (misturado(final)) throw new Error('O carrinho ainda contém os dois grupos.');
+      anterior = copia(final);
+      window.location.reload();
+    } catch (erro) {
+      console.error('[LDV promocional]', erro);
+      if (popup === aberto) {
+        aberto.erro.textContent = 'Não foi possível atualizar o carrinho. Tente novamente.';
+      }
+    } finally {
+      atualizando = false;
+      if (popup) {
+        popup.caixa.removeAttribute('aria-busy');
+        popup.caixa.querySelectorAll('button').forEach(botao => { botao.disabled = false; });
+      }
+    }
+  }
+
+  function verificar() {
+    if (atualizando || popup) return Promise.resolve(null);
+    if (consulta) return consulta;
+    consulta = (async () => {
+      try {
+        const carrinho = await lerCarrinho();
+        if (misturado(carrinho)) abrirPopup(carrinho);
+        else anterior = copia(carrinho);
+        return carrinho;
+      } catch (erro) {
+        console.error('[LDV promocional] Erro ao monitorar o carrinho:', erro);
+        return null;
+      } finally { consulta = null; }
+    })();
+    return consulta;
+  }
+
+  // A regra também pode ser carregada no checkout para conferir a finalização.
+  async function conferirFinalizacao(evento, elemento, retomar) {
+    if (elemento === liberando || elemento.disabled) return;
+    evento.preventDefault();
+    evento.stopImmediatePropagation();
+    if (atualizando || popup) return;
+    const carrinho = await verificar();
+    if (!carrinho || misturado(carrinho) || !elemento.isConnected || elemento.disabled) return;
+    liberando = elemento;
+    try { retomar(); } finally { liberando = null; }
+  }
+
+  function iniciar() {
+    const estilo = document.createElement('style');
+    estilo.id = 'ldv-promocional-monitor-estilo';
+    estilo.textContent =
+      '#ldv-promocional-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;z-index:2147483647;}' +
+      '#ldv-promocional-modal{box-sizing:border-box;width:100%;max-width:540px;max-height:calc(100dvh - 32px);overflow:auto;background:#fff;color:#253248;padding:28px;border-radius:14px;box-shadow:0 16px 60px #0004;font:16px/1.55 Arial,sans-serif;}' +
+      '#ldv-promocional-modal h2{margin:0 0 18px;color:#192f63;font-size:23px;line-height:1.3;font-weight:700;}' +
+      '#ldv-promocional-modal p{margin:0 0 16px;}' +
+      '#ldv-promocional-modal strong{font-weight:700;}' +
+      '#ldv-promocional-modal .ldv-promocional-regra{padding:12px;background:#f2f5fb;border-left:3px solid #192f63;border-radius:6px;font-size:14px;}' +
+      '#ldv-promocional-modal .ldv-promocional-erro{color:#a31515;font-size:14px;}' +
+      '#ldv-promocional-modal .ldv-promocional-erro:empty{display:none;}' +
+      '.ldv-promocional-acoes{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px;}' +
+      '.ldv-promocional-acoes button{flex:1;min-height:44px;padding:12px 18px;background:#fff;color:#192f63;border:1px solid #b9c4d8;border-radius:7px;cursor:pointer;font:700 14px/1.4 Arial,sans-serif;}' +
+      '.ldv-promocional-acoes .ldv-promocional-confirmar{background:#192f63;border-color:#192f63;color:#fff;}' +
+      '.ldv-promocional-acoes button:disabled{opacity:.55;cursor:wait;}' +
+      '.ldv-promocional-acoes button:focus-visible{outline:3px solid #648cea;outline-offset:3px;}' +
+      '@media(max-width:480px){#ldv-promocional-modal{padding:22px;}.ldv-promocional-acoes{flex-direction:column;}}';
+    document.head.appendChild(estilo);
+    document.documentElement.setAttribute('data-ldv-promocional-monitor', VERSAO);
+    verificar();
+    window.setInterval(() => { if (!document.hidden) verificar(); }, CONFIG.intervalo);
+    window.addEventListener('focus', verificar);
+    window.addEventListener('pageshow', verificar);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) verificar(); });
+    if (window.jQuery) window.jQuery(window).on('orderFormUpdated.vtex.ldvPromocional', verificar);
+    document.addEventListener('click', evento => {
+      const alvo = evento.target instanceof Element ? evento.target : null;
+      const compra = alvo && alvo.closest('button');
+      if (compra && compra.querySelector('[class*="vtex-add-to-cart-button-"]')) {
+        window.setTimeout(verificar, 350);
+      }
+      const finalizar = alvo && alvo.closest('[id="payment-data-submit"], #payment-data .payment-submit-hide button.submit');
+      if (finalizar) {
+        conferirFinalizacao(evento, finalizar, () => finalizar.click());
+        return;
+      }
+      const link = alvo && alvo.closest('a[href]');
+      if (!link || evento.button !== 0 || evento.ctrlKey || evento.metaKey || evento.shiftKey || evento.altKey || link.target === '_blank') return;
+      const url = new URL(link.href, location.href);
+      if (url.origin === location.origin && /^\/checkout\/?$/.test(url.pathname)) {
+        conferirFinalizacao(evento, link, () => link.click());
+      }
+    }, true);
+    document.addEventListener('submit', evento => {
+      const formulario = evento.target;
+      if (!(formulario instanceof HTMLFormElement) || !formulario.matches('#payment-data form') || !formulario.querySelector('button.submit')) return;
+      conferirFinalizacao(evento, formulario, () => formulario.requestSubmit(evento.submitter || undefined));
+    }, true);
+    console.info('[LDV promocional] Monitor v' + VERSAO + ' ativo — SKU ' + CONFIG.sku);
+  }
+
+  window.LDVPromocionalSeparadoMonitor = { versao: VERSAO, config: CONFIG, verificar };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar, { once: true });
+  else iniciar();
+})();
+</script>
