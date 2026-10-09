@@ -491,7 +491,7 @@
 
 
 
-
+<!-- SCRIPT PARA NÃO PERMITIR ADIÇÃO DE OUTROS PRODUTOS NO CARINHO -->
 
 <script>
   (function () {
@@ -499,6 +499,9 @@
   if (window.LDVPromocionalSeparadoMonitor) return;
 
   const CONFIG = {
+    // SKU TESTE
+    // sku: '359173',
+    // SKU REAL
     sku: '976084',
     nome: 'Ingresso Evento + Livro - Corte de Harmonias Partidas',
     intervalo: 1200
@@ -785,5 +788,316 @@
   window.LDVPromocionalSeparadoMonitor = { versao: VERSAO, config: CONFIG, verificar };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar, { once: true });
   else iniciar();
+})();
+</script>
+
+
+<!-- SCRIPT PARA BLOQUEAR A COMPRA ATÉ A LIBERAÇÃO -->
+
+<style>
+  .vtex-flex-layout-0-x-flexRowContent--productMain {
+    display: none;
+    min-height: 90vh;
+}
+
+@media only screen and (max-width: 800px) {
+  .vtex-flex-layout-0-x-flexRowContent--productMain {
+        flex-direction: column;
+  }
+}
+</style>
+
+<script>
+/*
+ * LDV — área de compra com liberação programada — versão 1.2.1.
+ * TESTE: A Cabeça do Santo, SKU 359173.
+ * Para o ingresso real, altere somente sku para '976084'.
+ * Liberação: 13/10/2026, às 10h GMT-3 (13h UTC).
+ * Carregar uma vez, globalmente, pela integração de scripts da loja.
+ *
+ * Requer no CSS da loja:
+ *   .vtex-flex-layout-0-x-flexRowContent--productMain { display: none; }
+ * O script exibe o container quando o conteúdo está pronto.
+ */
+(function () {
+  'use strict';
+  if (window.LDVProdutoEmBreve) return;
+
+  const CONFIG = {
+    // sku: '359173',
+    sku: '976084',
+    liberarEm: '2026-10-13T10:00:00-03:00',
+    mensagem: 'Este produto será liberado em breve.',
+    detalhe: 'A compra estará disponível em 13/10/2026, a partir das 10h (GMT−3).',
+    // Valor de display aplicado ao container quando estiver pronto.
+    // O flexRowContent da VTEX é flex por padrão; use 'block' só se o layout pedir.
+    exibicao: 'flex',
+    // Segurança: se algo não carregar, exibe o container depois desse tempo.
+    tempoMaximoMs: 5000
+  };
+  const LIMITE = Date.parse(CONFIG.liberarEm);
+  const CONTAINER = '.vtex-flex-layout-0-x-flexRowContent--productMain';
+  const COLUNA = '.render-route-store-product .vtex-render__container-id-availability .vtex-flex-layout-0-x-flexCol--prod-right-col';
+  const ATRIBUTOS = {
+    oculto: 'data-ldv-em-breve-oculto',
+    caminho: 'data-ldv-em-breve-caminho',
+    titulo: 'data-ldv-em-breve-titulo',
+    conteudo: 'data-ldv-em-breve-conteudo'
+  };
+  const vistoEm = new WeakMap();
+  let observer;
+  let intervalo;
+  let agendamento;
+  let frame;
+  let encerrado = false;
+
+  // 'nao-pdp' | 'aguardando' (metadados ainda não atualizados) | 'alvo' | 'outro'
+  function estadoPagina() {
+    if (!/\/p\/?$/i.test(location.pathname)) return 'nao-pdp';
+    const sku = document.querySelector('meta[property="product:sku"]');
+    if (!sku) return 'aguardando';
+    // Evita aplicar metadados antigos durante a navegação interna da VTEX.
+    const canonical = document.querySelector('link[rel="canonical"]');
+    if (canonical) {
+      try {
+        const caminho = new URL(canonical.href, location.href).pathname.replace(/\/$/, '');
+        if (caminho !== location.pathname.replace(/\/$/, '')) return 'aguardando';
+      } catch (_) { return 'aguardando'; }
+    }
+    return String(sku.content).trim() === CONFIG.sku ? 'alvo' : 'outro';
+  }
+
+  // Na navegação interna, a PDP-alvo antiga continua no DOM até a nova rota
+  // renderizar. Enquanto o aviso existir, a página antiga deve continuar bloqueada.
+  function pdpAlvoAindaMontada() {
+    return !!document.querySelector('[data-ldv-aviso-liberacao]');
+  }
+
+  function conteudoCarregado(container) {
+    return !!container.querySelector(COLUNA + ' h1');
+  }
+
+  function expirou(container) {
+    const inicio = vistoEm.get(container);
+    return inicio !== undefined && Date.now() - inicio >= CONFIG.tempoMaximoMs;
+  }
+
+  function exibir(container) {
+    if (
+      container.style.getPropertyValue('display') !== CONFIG.exibicao ||
+      container.style.getPropertyPriority('display') !== 'important'
+    ) {
+      container.style.setProperty('display', CONFIG.exibicao, 'important');
+    }
+  }
+
+  // Após a liberação, o CSS de display:none da loja continuaria valendo.
+  // Esta regra garante que o container fique visível de forma permanente.
+  function forcarExibicao() {
+    if (document.getElementById('ldv-produto-em-breve-liberado')) return;
+    const estilo = document.createElement('style');
+    estilo.id = 'ldv-produto-em-breve-liberado';
+    estilo.textContent = CONTAINER + '{display:' + CONFIG.exibicao + '!important;}';
+    (document.head || document.documentElement).appendChild(estilo);
+  }
+
+  function limpar() {
+    Object.values(ATRIBUTOS).forEach(atributo => {
+      document.querySelectorAll('[' + atributo + ']').forEach(elemento => elemento.removeAttribute(atributo));
+    });
+    document.querySelectorAll('[data-ldv-aviso-liberacao]').forEach(elemento => elemento.remove());
+    document.documentElement.removeAttribute('data-ldv-produto-em-breve');
+  }
+
+  function sincronizar(atributo, elementos) {
+    document.querySelectorAll('[' + atributo + ']').forEach(elemento => {
+      if (!elementos.has(elemento)) elemento.removeAttribute(atributo);
+    });
+    elementos.forEach(elemento => {
+      if (!elemento.hasAttribute(atributo)) elemento.setAttribute(atributo, '');
+    });
+  }
+
+  function avisoPara(coluna, ancora) {
+    const existente = coluna.querySelector('[data-ldv-aviso-liberacao]');
+    if (existente) {
+      if (ancora.nextElementSibling !== existente) ancora.insertAdjacentElement('afterend', existente);
+      return existente;
+    }
+    const aviso = document.createElement('section');
+    aviso.setAttribute('data-ldv-aviso-liberacao', '');
+    aviso.setAttribute('role', 'status');
+    const mensagem = document.createElement('p');
+    mensagem.className = 'ldv-em-breve-mensagem';
+    mensagem.textContent = CONFIG.mensagem;
+    const detalhe = document.createElement('p');
+    detalhe.className = 'ldv-em-breve-detalhe';
+    detalhe.textContent = CONFIG.detalhe;
+    aviso.append(mensagem, detalhe);
+    ancora.insertAdjacentElement('afterend', aviso);
+    return aviso;
+  }
+
+  function liberar() {
+    if (encerrado) return;
+    encerrado = true;
+    if (observer) observer.disconnect();
+    window.clearInterval(intervalo);
+    window.clearTimeout(agendamento);
+    if (frame) window.cancelAnimationFrame(frame);
+    limpar();
+    forcarExibicao();
+    const estilo = document.getElementById('ldv-produto-em-breve-estilo');
+    if (estilo) estilo.remove();
+    document.removeEventListener('click', protegerCompra, true);
+    document.removeEventListener('submit', protegerCompra, true);
+    window.removeEventListener('popstate', atualizar);
+    window.removeEventListener('pageshow', atualizar);
+    window.removeEventListener('focus', atualizar);
+    document.removeEventListener('visibilitychange', atualizar);
+    document.removeEventListener('DOMContentLoaded', atualizar);
+  }
+
+  function atualizar() {
+    frame = null;
+    if (encerrado) return;
+    if (Date.now() >= LIMITE) { liberar(); return; }
+
+    const containers = document.querySelectorAll(CONTAINER);
+    containers.forEach(container => {
+      if (!vistoEm.has(container)) vistoEm.set(container, Date.now());
+    });
+
+    const estado = estadoPagina();
+    if (estado !== 'alvo') {
+      if ((estado === 'nao-pdp' || estado === 'aguardando') && pdpAlvoAindaMontada()) {
+        containers.forEach(container => { if (expirou(container)) exibir(container); });
+        return;
+      }
+      limpar();
+      containers.forEach(container => {
+        if (
+          estado === 'nao-pdp' ||
+          (estado === 'outro' && conteudoCarregado(container)) ||
+          expirou(container)
+        ) exibir(container);
+      });
+      return;
+    }
+
+    const ocultos = new Set();
+    const caminhos = new Set();
+    const titulos = new Set();
+    const conteudos = new Set();
+    const avisos = new Set();
+    const preservados = new Set();
+
+    document.querySelectorAll(COLUNA).forEach(coluna => {
+      const titulo = coluna.querySelector('h1.vtex-store-components-3-x-productNameContainer, h1');
+      if (!titulo) return;
+      // Escopo limitado à coluna de informações e compra; a galeria fica fora dele.
+      conteudos.add(coluna);
+      titulos.add(titulo);
+      const manter = [titulo, ...coluna.querySelectorAll(
+        '.vtex-store-link-0-x-link--author-link, .vtex-product-specification-badges-0-x-badgeContainer--autor'
+      )];
+      const blocosPreservados = Array.from(coluna.children).filter(bloco => manter.some(elemento => bloco.contains(elemento)));
+      const ancora = blocosPreservados[blocosPreservados.length - 1];
+      if (!ancora) return;
+      avisos.add(avisoPara(coluna, ancora));
+      manter.forEach(original => {
+        preservados.add(original);
+        let elemento = original;
+        while (elemento && coluna.contains(elemento)) {
+          caminhos.add(elemento);
+          if (elemento === coluna) break;
+          elemento = elemento.parentElement;
+        }
+      });
+    });
+
+    caminhos.forEach(elemento => {
+      if (preservados.has(elemento)) return;
+      Array.from(elemento.children).forEach(filho => {
+        if (!caminhos.has(filho) && !avisos.has(filho)) ocultos.add(filho);
+      });
+    });
+    sincronizar(ATRIBUTOS.oculto, ocultos);
+    sincronizar(ATRIBUTOS.caminho, caminhos);
+    sincronizar(ATRIBUTOS.titulo, titulos);
+    sincronizar(ATRIBUTOS.conteudo, conteudos);
+    document.querySelectorAll('[data-ldv-aviso-liberacao]').forEach(aviso => {
+      if (!avisos.has(aviso)) aviso.remove();
+    });
+
+    // Só exibe o container depois que o aviso já está montado (ou pelo tempo máximo).
+    containers.forEach(container => {
+      if (container.querySelector('[data-ldv-aviso-liberacao]') || expirou(container)) exibir(container);
+    });
+
+    const estadoAtributo = titulos.size ? 'ativo' : 'preparando';
+    if (document.documentElement.getAttribute('data-ldv-produto-em-breve') !== estadoAtributo) {
+      document.documentElement.setAttribute('data-ldv-produto-em-breve', estadoAtributo);
+    }
+  }
+
+  function solicitarAtualizacao() {
+    if (!encerrado && !frame) frame = window.requestAnimationFrame(atualizar);
+  }
+
+  function protegerCompra(evento) {
+    if (Date.now() >= LIMITE) { liberar(); return; }
+    const estado = estadoPagina();
+    if (estado !== 'alvo' && !((estado === 'nao-pdp' || estado === 'aguardando') && pdpAlvoAindaMontada())) return;
+    const elemento = evento.target instanceof Element ? evento.target : null;
+    if (!elemento) return;
+    if (!elemento.closest(COLUNA)) return;
+    const controleCompra = elemento.closest(
+      '[data-ldv-em-breve-oculto], .vtex-flex-layout-0-x-flexRow--BuyButton-pdp, .vtex-flex-layout-0-x-flexRow--quantity-wish, .vtex-store-components-3-x-shippingContainer'
+    );
+    if (!controleCompra || elemento.closest('[data-ldv-aviso-liberacao]')) return;
+    evento.preventDefault();
+    evento.stopImmediatePropagation();
+  }
+
+  function agendarLiberacao() {
+    if (encerrado) return;
+    const restante = LIMITE - Date.now();
+    if (restante <= 0) { liberar(); return; }
+    agendamento = window.setTimeout(() => {
+      atualizar();
+      if (!encerrado) agendarLiberacao();
+    }, Math.min(restante, 2147483647));
+  }
+
+  window.LDVProdutoEmBreve = { versao: '1.2.1', config: CONFIG, atualizar };
+  if (Date.now() >= LIMITE) { encerrado = true; forcarExibicao(); return; }
+
+  const estilo = document.createElement('style');
+  estilo.id = 'ldv-produto-em-breve-estilo';
+  estilo.textContent =
+    '[data-ldv-em-breve-oculto]{display:none!important;}' +
+    '[data-ldv-aviso-liberacao]{box-sizing:border-box;flex:0 0 auto;width:100%;max-width:720px;margin:24px 0;padding:24px;background:#f2f5fb;border-left:4px solid #192f63;border-radius:8px;color:#253248;font:16px/1.6 Arial,sans-serif;}' +
+    '[data-ldv-aviso-liberacao] p{margin:0;}' +
+    '[data-ldv-aviso-liberacao] .ldv-em-breve-mensagem{margin:0 0 8px;font-weight:700;font-size:20px;color:#192f63;}' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-product-price-1-x-sellingPrice,' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-product-price-1-x-installments,' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-flex-layout-0-x-flexRow--quantity-wish,' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-flex-layout-0-x-flexRow--BuyButton-pdp,' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-store-components-3-x-shippingContainer{visibility:hidden!important;pointer-events:none!important;}' +
+    '@media(max-width:600px){[data-ldv-aviso-liberacao]{padding:20px;}}';
+  (document.head || document.documentElement).appendChild(estilo);
+  observer = new MutationObserver(solicitarAtualizacao);
+  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['content', 'href', 'class'] });
+  document.addEventListener('click', protegerCompra, true);
+  document.addEventListener('submit', protegerCompra, true);
+  window.addEventListener('popstate', atualizar);
+  window.addEventListener('pageshow', atualizar);
+  window.addEventListener('focus', atualizar);
+  document.addEventListener('visibilitychange', atualizar);
+  document.addEventListener('DOMContentLoaded', atualizar);
+  intervalo = window.setInterval(atualizar, 1000);
+  atualizar();
+  agendarLiberacao();
 })();
 </script>
