@@ -872,3 +872,235 @@
 })();
 
 </script>
+
+
+
+<!-- Evento LDV - Liberação de Compra -->
+
+<script>
+/*
+ * LDV — área de compra com liberação programada — versão 1.2.1.
+ * Ingressos do evento, SKUs 977912 e 977913.
+ * Liberação: 06/11/2026, às 10h GMT-3 (13h UTC).
+ * Carregar uma vez, globalmente, pela integração de scripts da loja.
+ */
+(function () {
+  'use strict';
+  if (window.LDVProdutoEmBreve) return;
+
+  var CONFIG = {
+    skus: ['977912', '977913'],
+    liberarEm: '2026-11-06T10:00:00-03:00',
+    mensagem: 'Este produto será liberado em breve.',
+    detalhe: 'A compra estará disponível em 06/11/2026, a partir das 10h (horário de Brasília).'
+  };
+  var LIMITE = Date.parse(CONFIG.liberarEm);
+  var COLUNA = '.render-route-store-product .vtex-render__container-id-availability .vtex-flex-layout-0-x-flexCol--prod-right-col';
+  var ATRIBUTOS = {
+    oculto: 'data-ldv-em-breve-oculto',
+    caminho: 'data-ldv-em-breve-caminho',
+    titulo: 'data-ldv-em-breve-titulo',
+    conteudo: 'data-ldv-em-breve-conteudo'
+  };
+  var observer;
+  var intervalo;
+  var agendamento;
+  var frame;
+  var encerrado = false;
+
+  function alvo() {
+    if (!/\/p\/?$/i.test(location.pathname)) return false;
+    var sku = document.querySelector('meta[property="product:sku"]');
+    if (!sku || CONFIG.skus.indexOf(String(sku.content).trim()) === -1) return false;
+    // Evita aplicar metadados antigos durante a navegação interna da VTEX.
+    var canonical = document.querySelector('link[rel="canonical"]');
+    if (canonical) {
+      try {
+        var caminho = new URL(canonical.href, location.href).pathname.replace(/\/$/, '');
+        if (caminho !== location.pathname.replace(/\/$/, '')) return false;
+      } catch (_) { return false; }
+    }
+    return true;
+  }
+
+  function limpar() {
+    Object.keys(ATRIBUTOS).forEach(function (chave) {
+      var atributo = ATRIBUTOS[chave];
+      document.querySelectorAll('[' + atributo + ']').forEach(function (elemento) {
+        elemento.removeAttribute(atributo);
+      });
+    });
+    document.querySelectorAll('[data-ldv-aviso-liberacao]').forEach(function (elemento) {
+      elemento.remove();
+    });
+    document.documentElement.removeAttribute('data-ldv-produto-em-breve');
+  }
+
+  function sincronizar(atributo, elementos) {
+    document.querySelectorAll('[' + atributo + ']').forEach(function (elemento) {
+      if (!elementos.has(elemento)) elemento.removeAttribute(atributo);
+    });
+    elementos.forEach(function (elemento) {
+      if (!elemento.hasAttribute(atributo)) elemento.setAttribute(atributo, '');
+    });
+  }
+
+  function avisoPara(coluna, ancora) {
+    var existente = coluna.querySelector('[data-ldv-aviso-liberacao]');
+    if (existente) {
+      if (ancora.nextElementSibling !== existente) ancora.insertAdjacentElement('afterend', existente);
+      return existente;
+    }
+    var aviso = document.createElement('section');
+    aviso.setAttribute('data-ldv-aviso-liberacao', '');
+    aviso.setAttribute('role', 'status');
+    var mensagem = document.createElement('p');
+    mensagem.className = 'ldv-em-breve-mensagem';
+    mensagem.textContent = CONFIG.mensagem;
+    var detalhe = document.createElement('p');
+    detalhe.className = 'ldv-em-breve-detalhe';
+    detalhe.textContent = CONFIG.detalhe;
+    aviso.append(mensagem, detalhe);
+    ancora.insertAdjacentElement('afterend', aviso);
+    return aviso;
+  }
+
+  function liberar() {
+    if (encerrado) return;
+    encerrado = true;
+    if (observer) observer.disconnect();
+    window.clearInterval(intervalo);
+    window.clearTimeout(agendamento);
+    if (frame) window.cancelAnimationFrame(frame);
+    limpar();
+    var estilo = document.getElementById('ldv-produto-em-breve-estilo');
+    if (estilo) estilo.remove();
+    document.removeEventListener('click', protegerCompra, true);
+    document.removeEventListener('submit', protegerCompra, true);
+    window.removeEventListener('popstate', atualizar);
+    window.removeEventListener('pageshow', atualizar);
+    window.removeEventListener('focus', atualizar);
+    document.removeEventListener('visibilitychange', atualizar);
+    document.removeEventListener('DOMContentLoaded', atualizar);
+  }
+
+  function atualizar() {
+    frame = null;
+    if (encerrado) return;
+    if (Date.now() >= LIMITE) { liberar(); return; }
+    if (!alvo()) { limpar(); return; }
+
+    var ocultos = new Set();
+    var caminhos = new Set();
+    var titulos = new Set();
+    var conteudos = new Set();
+    var avisos = new Set();
+    var preservados = new Set();
+
+    document.querySelectorAll(COLUNA).forEach(function (coluna) {
+      var titulo = coluna.querySelector('h1.vtex-store-components-3-x-productNameContainer, h1');
+      if (!titulo) return;
+      // Escopo limitado à coluna de informações e compra; a galeria fica fora dele.
+      conteudos.add(coluna);
+      titulos.add(titulo);
+      var manter = [titulo].concat(Array.prototype.slice.call(coluna.querySelectorAll(
+        '.vtex-store-link-0-x-link--author-link, .vtex-product-specification-badges-0-x-badgeContainer--autor'
+      )));
+      var blocosPreservados = Array.from(coluna.children).filter(function (bloco) {
+        return manter.some(function (elemento) { return bloco.contains(elemento); });
+      });
+      var ancora = blocosPreservados[blocosPreservados.length - 1];
+      if (!ancora) return;
+      avisos.add(avisoPara(coluna, ancora));
+      manter.forEach(function (original) {
+        preservados.add(original);
+        var elemento = original;
+        while (elemento && coluna.contains(elemento)) {
+          caminhos.add(elemento);
+          if (elemento === coluna) break;
+          elemento = elemento.parentElement;
+        }
+      });
+    });
+
+    caminhos.forEach(function (elemento) {
+      if (preservados.has(elemento)) return;
+      Array.from(elemento.children).forEach(function (filho) {
+        if (!caminhos.has(filho) && !avisos.has(filho)) ocultos.add(filho);
+      });
+    });
+    sincronizar(ATRIBUTOS.oculto, ocultos);
+    sincronizar(ATRIBUTOS.caminho, caminhos);
+    sincronizar(ATRIBUTOS.titulo, titulos);
+    sincronizar(ATRIBUTOS.conteudo, conteudos);
+    document.querySelectorAll('[data-ldv-aviso-liberacao]').forEach(function (aviso) {
+      if (!avisos.has(aviso)) aviso.remove();
+    });
+    var estado = titulos.size ? 'ativo' : 'preparando';
+    if (document.documentElement.getAttribute('data-ldv-produto-em-breve') !== estado) {
+      document.documentElement.setAttribute('data-ldv-produto-em-breve', estado);
+    }
+  }
+
+  function solicitarAtualizacao() {
+    if (!encerrado && !frame) frame = window.requestAnimationFrame(atualizar);
+  }
+
+  function protegerCompra(evento) {
+    if (Date.now() >= LIMITE) { liberar(); return; }
+    if (!alvo()) return;
+    var elemento = evento.target instanceof Element ? evento.target : null;
+    if (!elemento) return;
+    if (!elemento.closest(COLUNA)) return;
+    var controleCompra = elemento.closest(
+      '[data-ldv-em-breve-oculto], .vtex-flex-layout-0-x-flexRow--BuyButton-pdp, .vtex-flex-layout-0-x-flexRow--quantity-wish, .vtex-store-components-3-x-shippingContainer'
+    );
+    if (!controleCompra || elemento.closest('[data-ldv-aviso-liberacao]')) return;
+    evento.preventDefault();
+    evento.stopImmediatePropagation();
+  }
+
+  function agendarLiberacao() {
+    if (encerrado) return;
+    var restante = LIMITE - Date.now();
+    if (restante <= 0) { liberar(); return; }
+    agendamento = window.setTimeout(function () {
+      atualizar();
+      if (!encerrado) agendarLiberacao();
+    }, Math.min(restante, 2147483647));
+  }
+
+  window.LDVProdutoEmBreve = { versao: '1.2.1', config: CONFIG, atualizar: atualizar };
+  if (Date.now() >= LIMITE) { encerrado = true; return; }
+
+  var estilo = document.createElement('style');
+  estilo.id = 'ldv-produto-em-breve-estilo';
+  estilo.textContent =
+    '[data-ldv-em-breve-oculto]{display:none!important;}' +
+    'html[data-ldv-produto-em-breve] .render-route-store-product .vtex-flex-layout-0-x-flexRowContent--productMain{min-height:500px;}' +
+    '[data-ldv-aviso-liberacao]{box-sizing:border-box;flex:0 0 auto;width:100%;max-width:720px;margin:24px 0;padding:24px;background:#f2f5fb;border-left:4px solid #192f63;border-radius:8px;color:#253248;font:16px/1.6 Arial,sans-serif;}' +
+    '[data-ldv-aviso-liberacao] p{margin:0;}' +
+    '[data-ldv-aviso-liberacao] .ldv-em-breve-mensagem{margin:0 0 8px;font-weight:700;font-size:20px;color:#192f63;}' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-product-price-1-x-sellingPrice,' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-product-price-1-x-installments,' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-flex-layout-0-x-flexRow--quantity-wish,' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-flex-layout-0-x-flexRow--BuyButton-pdp,' +
+    'html[data-ldv-produto-em-breve="preparando"] ' + COLUNA + ' .vtex-store-components-3-x-shippingContainer{visibility:hidden!important;pointer-events:none!important;}' +
+    '@media(max-width:600px){[data-ldv-aviso-liberacao]{padding:20px;}}';
+  (document.head || document.documentElement).appendChild(estilo);
+  observer = new MutationObserver(solicitarAtualizacao);
+  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['content', 'href', 'class'] });
+  document.addEventListener('click', protegerCompra, true);
+  document.addEventListener('submit', protegerCompra, true);
+  window.addEventListener('popstate', atualizar);
+  window.addEventListener('pageshow', atualizar);
+  window.addEventListener('focus', atualizar);
+  document.addEventListener('visibilitychange', atualizar);
+  document.addEventListener('DOMContentLoaded', atualizar);
+  intervalo = window.setInterval(atualizar, 1000);
+  atualizar();
+  agendarLiberacao();
+})();
+
+
+</script>
